@@ -40,6 +40,7 @@ let model = {
     cmd: [],
     settings: _.cloneDeep(default_settings),
     creds: {},
+    certfile: '',
     reset: false,
     clean: false,
     import: false,
@@ -135,7 +136,13 @@ let print_intro = (model) => {
 let self_update = (model) => {
 
     if (model) {
-        return request.get(model.client.endpoint + '/info').then((body) => {
+        var request_options = {
+            url: model.client.endpoint + '/info',
+            agentOptions: {
+                ca: fs.readFileSync(model.client.certfile)
+            }
+        }
+        return request.get(request_options).then((body) => {
 
             let info = JSON.parse(body)
             model.latest = info.version;
@@ -159,10 +166,14 @@ let self_update = (model) => {
                     if (error) throw error;
                     let uname = _.trim(_.toLower(stdout));
                     let myself = null;
-
-                    return request.get(model.client.endpoint + `/dist/bin/${uname}/keys`, {
+                    var request_options = {
+                        url: model.client.endpoint + `/dist/bin/${uname}/keys`,
+                        agentOptions: {
+                            ca: fs.readFileSync(model.client.certfile)
+                        },
                         encoding: null
-                    }).then((bin) => {
+                    }
+                    return request.get(request_options).then((bin) => {
                         myself = process.argv[0];
                         fs.writeFileSync(myself, bin, {
                             encoding: null
@@ -205,6 +216,7 @@ let handle_args = (model) => {
     let last_was_token = false
     let last_was_env = false;
     let last_was_endpoint = false;
+    let is_using_cert = false;
     _.each(items, (item) => {
         if (!start_cmd) {
             if (_.startsWith(item, '-')) {
@@ -216,6 +228,8 @@ let handle_args = (model) => {
                     last_was_env = true;
                 } else if (item === '-c' || item === '--clean') {
                     model.clean = true;
+                } else if (item === '-ca' || item === '--ca-file') {
+                    is_using_cert = true;
                 } else if (item === '-i' || item === '--import') {
                     model.import = true;
                 } else if (item === '--register') {
@@ -229,6 +243,9 @@ let handle_args = (model) => {
             } else if (last_was_token) {
                 model.args.push(item);
                 last_was_token = false;
+            } else if (is_using_cert) {
+                model.client.certfile = item;
+                is_using_cert = false;
             } else if (last_was_env) {
                 model.env_name = item;
                 last_was_env = false;
@@ -395,7 +412,10 @@ let ask_creds = async (model) => {
                             uri: model.client.endpoint + '/register',
                             jar: true,
                             json: body,
-                            method: 'POST'
+                            method: 'POST',
+                            agentOptions: {
+                                ca: fs.readFileSync(model.client.certfile)
+                            }
                         };
                         return request(options).then((body) => {
                             info('Created Account'.green, `at ${model.client.endpoint}`.grey);
@@ -501,7 +521,10 @@ let import_env = async (model) => {
             uri: model.client.endpoint + '/env/update',
             jar: true,
             json: body,
-            method: 'POST'
+            method: 'POST',
+            agentOptions: {
+                ca: fs.readFileSync(model.client.certfile)
+            }
         };
         return request(options).then((body) => {
             let action = model.create_env ? 'Created' : 'Updated';
@@ -530,7 +553,10 @@ let update_stats = async (model) => {
             uri: model.client.endpoint + '/env/update',
             jar: true,
             json: body,
-            method: 'POST'
+            method: 'POST',
+            agentOptions: {
+                ca: fs.readFileSync(model.client.certfile)
+            }
         };
         request(options).catch(err => error(err));
     }
@@ -682,7 +708,8 @@ let login = async (model) => {
             uri: model.client.endpoint + '/login',
             jar: true,
             json: req,
-            method: 'POST'
+            method: 'POST',
+            ca: fs.readFileSync(model.client.certfile),
         };
         return request(options).then(async (body) => {
 
@@ -696,8 +723,16 @@ let login = async (model) => {
                     user: body['user'],
                     code: code
                 }
+                var request_options = {
+                    agentOptions: {
+                        ca: fs.readFileSync(model.client.certfile)
+                    }
+                }
                 return request.post(model.client.endpoint + '/totp/login', {
-                    json: req
+                    json: req,
+                    agentOptions: {
+                        ca: fs.readFileSync(model.client.certfile)
+                    }
                 }).then((body) => {
 
                     info('AuthSuccess'.green, `for ${model.creds.email}`.grey);
